@@ -5,7 +5,7 @@ Computes the ML estimates of the parameters of the model being the stars belongi
 some distance, with the absolute magnitude following a isochrone and moving trough the space with some velocity.
 
 Input: a file with a list of cluster members with the following parameters:
-magnitude G        = mg (mag)
+magnitud G        = mg (mag)
 galatic latitude  = l (radians)
 galatic longitude = b (radians)
 parallax          = pi (muas)
@@ -20,167 +20,238 @@ Output:
 Parameters, distance, position, speed, size isochrone, with their errors
 
 """
-from Functions3 import *
+
+import random
+import time
+from functools import partial
+from math import pow, pi, sqrt, log10, exp, sin, cos
+from multiprocessing import Pool
+
+import numdifftools as nd
+import numpy as np
+import pandas as pd
+from numpy import matrix
+from scipy import interpolate
+from scipy.integrate import quad, dblquad
+from scipy.optimize import minimize
+from scipy.special import erfc
+
+from Functions3 import getParameters, getSigmaSSigmaMforC, getWeight, AgCluster, getSigmaSSigmaMforD, getCminCmaxforD, \
+    epsMuAlpha, epsMuDelta, Fmag, Fvel, jacobian, Fspace, epsPi, checkParamsAreValid, getSpline, \
+    transformCoordinates, logD, findWeightings, calculateMeanL, calculateMeanB
+
+from bins import calculate_bins
+
 random.seed(1)
 
-def calculateErrors(starlist, c, res):
-    '''
+
+def calculateErrors(starlist, c, res, bins):
+    """
     Finds the derivative of the likelihood function around the maximum computing a Hessian matrix
     (Please refer to M. Palmer et al (2014)
 
     :param starlist: star list
     :param c: star dictionary with number of stars, Gaia mag limit, lMean, bMean, w
     :param res: MLE results
+    :param bins: bin list
     :return: covariance matrix
-    '''
-
+    """
     print "\n\nCalculating errors...\n\n"
-    
+
     def callML(x):
-        p=getP(x)
-        return  LikelihoodFunction(starlist, p,c)
+        p = getParameters(x)
+        return LikelihoodFunction(starlist, p, c, bins)
 
     def makearray(value, nrows, ncols):
-        return [[value]*ncols for _ in range(nrows)]
+        return [[value] * ncols for _ in range(nrows)]
 
-    cov = makearray(None,16,16)
-    error=[]
+    cov = makearray(None, 16, 16)
+    error = []
     Hfun = nd.Hessian(callML)
     tempMatrix = matrix(Hfun(res))
 
     print tempMatrix
     covarianceMatrix = np.array(tempMatrix.I).tolist()
-    print "\nCovariance Matrix:\n", covarianceMatrix   
-    
-    for i in xrange(0,len(res),1):
-        try: error.append( sqrt(-covarianceMatrix[i][i]))
-        except: 
+    print "\nCovariance Matrix:\n", covarianceMatrix
+
+    for i in xrange(0, len(res), 1):
+        try:
+            error.append(sqrt(-covarianceMatrix[i][i]))
+        except:
             error.append("Error")
-            print "Hessian Error"         
-    print "Errors are:",error
+            print "Hessian Error"
+    print "Errors are:", error
 
-
-    for i in xrange(0,len(res),1):
-        for j in xrange(0,len(res),1):
+    for i in xrange(0, len(res), 1):
+        for j in xrange(0, len(res), 1):
             try:
-                cov[i][j]= covarianceMatrix[i][j] / (error[i] * error[j])    
+                cov[i][j] = covarianceMatrix[i][j] / (error[i] * error[j])
             except:
-                print i,j
-                cov[i][j]="Error"
-    print "correlations are",cov    
-    
-            
-def calculatesNormalizationCoeff(p, c, minColour, maxColour, spline, outputC):
-    '''
+                print i, j
+                cov[i][j] = "Error"
+    print "correlations are", cov
+
+
+def calculatesNormalizationCoeffPool(colours, parameters, constants, spline, bins):
+    """
     Calculates the normalisation coefficient
-    :param p:
-    :param c:
-    :param minColour:
-    :param maxColour:
-    :param spline:
-    :param outputC:
-    :return: nothing
-    '''
-    sigmaS, sigmaM =  getSigmaSSigmaMforC(p,minColour,maxColour)
-    weight = getWeight(c,minColour,maxColour)
-    
+
+    :param colours:
+    :param parameters: cluster parameters
+    :param constants: cluster constants
+    :param spline: spline
+    :param bins: bin list
+    :return: normalisation coefficient for each bins item
+    """
+
+    minColour = colours[0]
+    maxColour = colours[1]
+
+    sigmaS, sigmaM = getSigmaSSigmaMforC(parameters, minColour, maxColour, bins)
+    weight = getWeight(constants, minColour, maxColour, bins)
+
     def Ir(r0):
-        def Ib(b0): 
-            def Il(l0): return  exp((-0.5 * (p['R^2']  + r0 ** 2 - 2 * r0 * p['R'] *  cos(b0) *  cos(l0)) / (pow(sigmaS,2)) ))
+        def Ib(b0):
+            def Il(l0): return exp(
+                (
+                    -0.5 * (parameters['R^2'] + r0 ** 2 - 2 * r0 * parameters['R'] * cos(b0) * cos(l0)) / (
+                        pow(sigmaS, 2))))
+
             integralL = quad(Il, -0.04, 0.04)
-            return integralL[0] *  cos(b0) 
-        def Ibprp(bprp):  
-            Mh = interpolate.splev(bprp,spline)
-            m0= Mh + (5*log10(r0)) - 5 + AgCluster
-            p = sigmaM*erfc(-((c['mlim']- m0)  /(sqrt(2)*sigmaM)))
+            return integralL[0] * cos(b0)
+
+        def Ibprp(bprp):
+            Mh = interpolate.splev(bprp, spline)
+            m0 = Mh + (5 * log10(r0)) - 5 + AgCluster
+            p = sigmaM * erfc(-((constants['mlim'] - m0) / (sqrt(2) * sigmaM)))
             return p
-        
+
         integralB = quad(Ib, -0.04, 0.04)
-        integralBPRP= quad(Ibprp, minColour, maxColour)
-        
-        return integralB[0] * r0 ** 2 *  integralBPRP[0]
-    integralR = quad(Ir,10, p['R'] + 100, epsabs =0)
+        integralBPRP = quad(Ibprp, minColour, maxColour)
 
-    value =  0.5*(2*pi)**4 * p['sigmaMuAlpha'] * p['sigmaMuDelta']  * integralR[0] *weight #PUT WEIGHT BACK IN HERE !!!
-    outputC.put(value)
+        return integralB[0] * r0 ** 2 * integralBPRP[0]
 
-def calculatesUnnormaLikelihood(p, c, star, spline, outputstars, CsinEps):
-    '''
-    Calculates the unnormalized Likelihood for each star
-    :param p:
-    :param c:
-    :param star:
-    :param spline:
-    :param outputstars:
-    :param CsinEps:
-    :return:
-    '''
-    sigmaS, sigmaM =  getSigmaSSigmaMforD(p,star)
-    thisCmin, thisCmax = getCminCmaxforD(star)
-    weight = getWeight(c,thisCmin,thisCmax)
+    integralR = quad(Ir, 10, parameters['R'] + 100, epsabs=0)
 
-    def Imu(muAlpha0,muDelta0): return Fvel(star,muAlpha0,muDelta0,p)  * epsMuAlpha(star,muAlpha0) * epsMuDelta(star,muDelta0)
-#    integralMu = dblquad(Imu,-0.07,-0.03,lambda x: 0,lambda x: 0.05,epsabs=0)    
-    integralMu = dblquad(Imu, p['muDeltaMean']-0.025, p['muDeltaMean']+0.025, lambda x: p['muAlphaMean']-0.025, lambda x: p['muAlphaMean']+0.025, epsabs=0)
-    
-    def Ir(r0): return jacobian(star,r0) * Fspace(star,r0,p,sigmaS) * Fmag(star,r0,spline,sigmaM) * epsPi(star,r0) * integralMu[0]
-    integralR = quad(Ir,10, p['R']+50)
-    outputstars.put( weight *  integralR[0]  / (CsinEps * star['epsPi'] *star['epsMuAlpha'] * star['epsMuDelta']))  
+    return 0.5 * (2 * pi) ** 4 * parameters['sigmaMuAlpha'] * parameters['sigmaMuDelta'] * integralR[0] * weight
 
-def LikelihoodFunction(starlist, p, c):
-    '''
-    Calculates the value of the likelihood functin for every star
+
+def calculatesUnnormaLikelihoodPool(star, parameters, constants, spline, CsinEps, bins):
+    """
+    Calculates the unnormalized likelihood for each star
+
+    :param parameters: cluster parameters
+    :param constants: cluster constants
+    :param star: star
+    :param spline: spline
+    :param CsinEps: sum of the normalisation coefficients
+    :param bins: bin list
+    :return: probability of the unnormalized likelihood
+    """
+
+    star_t = transformCoordinates(star, constants)
+    sigmaS, sigmaM = getSigmaSSigmaMforD(parameters, star_t, bins)
+    thisCmin, thisCmax = getCminCmaxforD(star_t, bins)
+    weight = getWeight(constants, thisCmin, thisCmax, bins)
+
+    def Imu(muAlpha0, muDelta0): return Fvel(muAlpha0, muDelta0, parameters['muAlphaMean'], parameters['sigmaMuAlpha'],
+                                             parameters['muDeltaMean'],
+                                             parameters['sigmaMuDelta']) * epsMuAlpha(star_t, muAlpha0) * epsMuDelta(
+        star_t,
+        muDelta0)
+
+    integralMu = dblquad(Imu, parameters['muDeltaMean'] - 0.025, parameters['muDeltaMean'] + 0.025,
+                         lambda x: parameters['muAlphaMean'] - 0.025, lambda x: parameters['muAlphaMean'] + 0.025,
+                         epsabs=0)
+
+    def Ir(r0): return jacobian(star_t, r0) * Fspace(star_t, r0, parameters, sigmaS) * Fmag(star_t, r0, spline,
+                                                                                            sigmaM) * epsPi(
+        star_t, r0) * integralMu[0]
+
+    integralR = quad(Ir, 10, parameters['R'] + 50)
+
+    return logD(weight * integralR[0] / (CsinEps * star_t['epsPi'] * star_t['epsMuAlpha'] * star_t['epsMuDelta']))
+
+
+def LikelihoodFunction(starlist, parameters, constants, bins):
+    """
+    Calculates the value of the likelihood function for every star
+
     :param starlist:
-    :param p:
-    :param c:
-    :return:
-    '''
-    if checkParamsAreValid(p) == False: 
+    :param parameters: cluster parameters
+    :param constants: cluster constants
+    :param bins: bin list
+    :return: final sum of the MLE
+    """
+
+    if not checkParamsAreValid(parameters):
         print "The Sum: -10E307 \n"
-        return -10E307  
+        return -10E307
     else:
-        outputC, outputstars, procs, Plist = Queue(), Queue(), [], []
-        spline = getSpline(bins,p)
-        
-        for colourRange in bins:
-            procs = startProcess(procs, target=calculatesNormalizationCoeff, args=(p, c, colourRange[0], colourRange[1], spline, outputC))
-        CsinEps = outputC.get()+outputC.get()+outputC.get()+outputC.get()
-        for P in procs: P.join()
-        procs=[]
-        
-        for star in starlist:
-            star=transformCoordinates(star,c)
-            procs = startProcess(procs, target=calculatesUnnormaLikelihood, args=(p, c, star, spline, outputstars, CsinEps))
-        
-        for P in procs: P.join()
-        
-        
-        for i in xrange (0,len(starlist),1):  Plist.append(  logD(outputstars.get(),star)  )
-        finalSum = sum(Plist)
-        print "The Sum:",finalSum,"\n"        
+
+        spline = getSpline(bins, parameters)
+
+        # t0 used for the total time
+        t0 = time.time()
+        # Number maximum of processes is 4 (bins is a list of 4 items)
+        pool = Pool(processes=4)
+
+        result_normalisation_coef = pool.map(
+            partial(calculatesNormalizationCoeffPool, parameters=parameters, constants=constants, spline=spline,
+                    bins=bins), bins)
+
+        # Closing the pool
+        pool.close()
+        # Joining the results
+        pool.join()
+
+        # Sum of the normalisation coefficient that we use as denominator for the likelihood function
+        CsinEps = sum(result_normalisation_coef)
+
+        # This number of processes can be changed depending on the number of cores. Theoretically, the maximum number of
+        # processes can be as high as the number of stars (this was the first implementation) but that can compromises
+        # the capacity of the CPU and it is not very optimal
+        pool = Pool(processes=4)
+        result_likelihood = pool.map(
+            partial(calculatesUnnormaLikelihoodPool, parameters=parameters, constants=constants, spline=spline,
+                    CsinEps=CsinEps, bins=bins), starlist)
+
+        # Closing the pool
+        pool.close()
+        # Joining the results
+        pool.join()
+
+        finalSum = np.sum(result_likelihood)
+
+        # Print used for experiment with the number of processes, it can be removed
+        print "Total time: " + str(time.time() - t0)
+
+        print "The Sum:", finalSum, "\n"
         return finalSum
 
 
-def MLE(starlist, c, guess):
-    '''
+def MLE(starlist, constants, guess, bins):
+    """
     MLE wrapper
 
-    :param starlist:
-    :param c:
-    :param guess:
+    :param starlist: star list
+    :param constants: dictionary with the constants
+    :param guess: initial guesses
+    :param bins: bin list
     :return:
-    '''
-    t0 = time.time()
-    print "\nMean coordinates are", c['lmean'], c['bmean']
+    """
 
-    def f(x):      
+    t0 = time.time()
+    print "\nMean coordinates are", constants['lmean'], constants['bmean']
+
+    def f(x):
         print x
-        p = getP(x)
-        return -LikelihoodFunction(starlist, p, c) 
-    
-    res =  minimize(f, x0=guess,method="Powell")
-    print "NM: " , res.message, "\n", res.x, "\n", "Total time:", time.time() - t0
-    return res.x   
+        parameters = getParameters(x)
+        return -LikelihoodFunction(starlist, parameters, constants, bins)
+
+    res = minimize(f, x0=guess, method="Powell")
+    print "NM: ", res.message, "\n", res.x, "\n", "Total time:", time.time() - t0
+    return res.x
 
 
 """
@@ -190,12 +261,11 @@ Main program to calculate ML. Catalogue should be located inside the same direct
 """
 if __name__ == '__main__':
 
-
     # Reads a csv file containing the parameters
-    fileName = 'Hyades'
+    fileName = 'Pleiades'
     starlist = pd.read_csv(fileName, names=['mg', 'l', 'b', 'pi', 'epsPi',
-                                              'muAlpha', 'epsMuAlpha', 'muDelta',
-                                              'epsMuDelta', 'bp-rp']).T.to_dict().values()
+                                            'muAlpha', 'epsMuAlpha', 'muDelta',
+                                            'epsMuDelta', 'bp-rp']).T.to_dict().values()
 
     # Coordinate transformation to 3 dimensional space x, y and z
     for star in starlist:
@@ -208,84 +278,107 @@ if __name__ == '__main__':
         star['z'] = (1.0 / star['pi']) * star['sinb']
 
     # In case of having radial velocities
-    #for i in range(len(starlist)):
+    # for i in range(len(starlist)):
     #    starlist[i].pop('vr', None)
     #    starlist[i].pop('epsVr-V', None)
 
-
-    distlist,maxlist,minlist,llist,blist,xlist,ylist,zlist = [],[],[],[],[],[],[],[]
+    distlist, maxlist, minlist, llist, blist, xlist, ylist, zlist, bp_rp_list = [], [], [], [], [], [], [], [], []
 
     # Creates list of values for each parameter
     for star in starlist:
-        if star['pi']>0: 
-            distlist.append(1/star['pi'])
+        if star['pi'] > 0:
+            distlist.append(1 / star['pi'])
             llist.append(star['l'])
             blist.append(star['b'])
-            maxlist.append((1/star['pi'])-(1/(star['pi']-star["epsPi"])))
-            minlist.append(-((1/star['pi'])-(1/(star['pi']+star["epsPi"]))))
+            maxlist.append((1 / star['pi']) - (1 / (star['pi'] - star["epsPi"])))
+            minlist.append(-((1 / star['pi']) - (1 / (star['pi'] + star["epsPi"]))))
             xlist.append(star['x'])
             ylist.append(star['y'])
             zlist.append(star['z'])
+        bp_rp_list.append(star['bp-rp'])
 
     # x, y and z means
     meanx = np.mean(xlist)
     meany = np.mean(ylist)
     meanz = np.mean(zlist)
-    print "mean cluster coordinates for original catalogue:",meanx,meany,meanz
+    print "mean cluster coordinates for original catalogue:", meanx, meany, meanz
 
-    #INITIAL GUESSES (hardcoded)
     if fileName == 'Hyades':
         # Initial Guess for Hyades
-        initial_guess =  [ 46.35158593 , 3.41991717 ,  5.50180935 ,  2.29546342 ,  2.54500714,   3.0  , 4.2 ,  6.0 ,  7.0 ,  7.2,   0.39008765 ,  0.32244944,   0.63084539 , 0.34296494 ,0,0,10,10]
-#    if fileName == 'PleiadesGeneva':
+        initial_guess = [46.35158593, 3.41991717, 5.50180935, 2.29546342, 2.54500714, 0.76959647, 3.98301261,
+                         5.24713807, 7.05108992, 9.25966225, 0.39008765, 0.32244944, 0.63084539, 0.34296494, 0, 0, 10,
+                         10]
+    if fileName == 'Pleiades':
         # Initial Guess for Pleiades
-#        initial_guess = [  1.25252094e+02 ,  3.35150575e+00,   4.86142031e+00 ,  1.03207132e+01,   1.31350468e+01 , -2.39384409e+00 ,  1.96855446e-01 ,  3.04079043e+00,   4.22140557e+00 ,  5.37379397e+00 ,  1.55576559e+00,   4.49615136e-01,   2.19895913e-01 ,  1.67554634e-01 ,  0,0,0.1,0.1]
-    if fileName == 'PleiadesGeneva':
-        # Initial Guess for Pleiades
-        initial_guess = [  1.25252094e+02 ,  3.35150575e+00,   4.86142031e+00 ,  1.03207132e+01,   1.31350468e+01 , -2.39384409e+00 ,  1.96855446e-01 ,  3.04079043e+00,   4.22140557e+00 ,  5.37379397e+00 ,  1.55576559e+00,   4.49615136e-01,   2.19895913e-01 ,  1.67554634e-01 ,  0,0,0.1,0.1]
-    if fileName== "Alpha_persei_1": 
-        initial_guess =[173.57,	3.42,	5.50,	2.30,	2.55,	-0.50,	2.0,	3,	4.0,	5.5,	0.20,	0.20,	0.20,	0.20,	0.0227700,	-0.0254000,	0.0018400,	0.0015100]
-    if fileName== "Blanco1": 
-        initial_guess = [231.14,	3.42,	5.50,	2.30,	2.55,	1.3,	2.5,	3.8,	4.5,	5.0,	0.20,	0.20,	0.20,	0.20,	0.0185130,	0.0025400,	0.0008200,	0.0008200]
-    if fileName== "Col140_1":
-        initial_guess = [351.30,	3.42,	5.50,	2.30,	2.55,	-2.0, 2.0,2.8,	3.0,3.4,	0.20,	0.20,	0.20,	0.20,	-0.0083700,	0.0048500,	0.0006100,	0.0007300]
-    if fileName== "Coma_berenices_1":
-        initial_guess = [85.19,	3.42,	5.50,	2.30,	2.55,	1.5,	3.5,5.0,6.0,6.5,	0.20,	0.20,	0.20,	0.20,	-0.0120600,	-0.0090800,	0.0013700,	0.0011600,]
-    if fileName== "IC2391":
-        initial_guess = [145.35,	3.42,	5.50,	2.30,	2.55,	0.0,1.8,	3.2,	4.4,	5.0,	0.20,	0.20,	0.20,	0.20,	-0.0241600,	0.0233054,	0.0027600,	0.0027290]
-    if fileName== "IC2602_1":
-        initial_guess = [149.46,	3.42,	5.50,	2.30,	2.55,	0.5,	3.1,	4.9,	5.0,	5.5,	0.20,	0.20,	0.20,	0.20,	-0.0174800,	0.0109300,	0.0022600,	0.0030900]
-    if fileName== "IC4665_1":
-        initial_guess = [358.84,	3.42,	5.50,	2.30,	2.55,	-0.5,	0.5,	1.5,	2.8, 3.9,	0.20,	0.20,	0.20,	0.20,	-0.0007800,	-0.0082200,	0.0003200,	0.0002900]
-    if fileName== "NGC2232":
-        initial_guess=[329.85,	3.42,	5.50,	2.30,	2.55,	-1.0,	1.1,	2.0,	3.5,	4.1,	0.20,	0.20,	0.20, 0.20,	-0.0044600,	-0.0016900,	0.0004400,	0.0005700]
-    if fileName== "NGC2422_1":
-        initial_guess = [456.93,	3.42,	5.50,	2.30,	2.55,	-1.0, 1.5, 3.0, 3.5,	4.0,	0.20,	0.20,	0.20,	0.20,	-0.0066800,	0.0009100,	0.0004700,	0.0003200]
-    if fileName== "NGC2451_1":
-        initial_guess = [184.65,	3.42,	5.50,	2.30,	2.55,	-0.5,	1.5,	3.0,	4.5,	5.5,	0.20,	0.20,	0.20,	0.20,	-0.0213200,	0.0156500,	0.0012100,	0.0011100]
-    if fileName== "NGC2516_1":
-        initial_guess = [355.68,	3.42,	5.50,	2.30,	2.55,	-1.5,	0.00,	2.0,	3.0,	3.2,	0.20,	0.20,	0.20,	0.20,	-0.0038600,	0.0108000,	0.0005500,	0.0004900]
-    if fileName== "NGC2547":
-        initial_guess = [364.66,	3.42,	5.50,	2.30,	2.55,	-0.0,	1.20,	2.0,	2.8,	3.20,	0.20,	0.20,	0.20,	0.20,	-0.0088700,	0.0041500,	0.0003900,	0.0002700]
-    if fileName== "NGC3532_1":
-        initial_guess = [450.06,	3.42,	5.50,	2.30,	2.55,	0.0,	1.10,	1.6,	2.8,	3.3,	0.20,	0.20,	0.20,	0.20,	-0.0103900,	0.0052500,	0.0004100,	0.0003700]
-    if fileName== "NGC6475":
-        initial_guess = [280.22,	3.42,	5.50,	2.30,	2.55,	-1.0,	2.0,	2.5,	3.5,	4.0,	0.20,	0.20,	0.20,	0.20,	0.0030600,	-0.0053500,	0.0005900,	0.0005500]
-    if fileName== "NGC6633_1":
-        initial_guess = [410.52,	3.42,	5.50,	2.30,	2.55,	0.5,	1.0,	2.0,	3.2,	3.5,	0.20,	0.20,	0.20,	0.20,	0.0015100,	-0.0017600,	0.0005130,	0.0002500]
-        #initial_guess = [410.52,	3.42,	5.50,	2.30,	2.55,	0.5,2.5,3.5,	0.20,	0.20,	0.20,	0.20,	0.0015100,	-0.0017600,	0.0005130,	0.0002500]
-    if fileName== "NGC7092_1":
-        initial_guess = [309.32,	3.42,	5.50,	2.30,	2.55,	-0.5,	0.5,	2.0,	2.5,	2.9,	0.20,	0.20,	0.20,	0.20,	-0.0070900,	-0.0199100,	0.0005800,	0.0004800]
-    if fileName== "Praesepe_1":
-        initial_guess = [183.97,	3.42,	5.50,	2.30,	2.55,	0.00,	2.1,	3.8,	4.1,	4.5,	0.20,	0.20,	0.20,	0.20,	-0.0361600,	-0.0130600,	0.0016300,	0.0012700]
-        
-     
-    # Find number of stars in every bin (color bin)
-    w=findW(starlist)
+        initial_guess = [1.25252094e+02, 3.35150575e+00, 4.86142031e+00, 1.03207132e+01, 1.31350468e+01,
+                         -2.39384409e+00, 1.96855446e-01, 3.04079043e+00, 4.22140557e+00, 5.37379397e+00,
+                         1.55576559e+00, 4.49615136e-01, 2.19895913e-01, 1.67554634e-01, 0, 0, 0.1, 0.1]
+    if fileName == "Alpha persei":
+        initial_guess = [173.57, 3.42, 5.50, 2.30, 2.55, -0.10, 0.30, 0.70, 1.10, 1.50, 0.20, 0.20, 0.20, 0.20,
+                         0.0227700, -0.0254000, 0.0018400, 0.0015100]
+    if fileName == "Blanco1":
+        initial_guess = [231.14, 3.42, 5.50, 2.30, 2.55, -0.10, 0.20, 0.50, 0.80, 1.10, 0.20, 0.20, 0.20, 0.20,
+                         0.0185130, 0.0025400, 0.0008200, 0.0008200]
+    if fileName == "Col140":
+        initial_guess = [351.30, 3.42, 5.50, 2.30, 2.55, -0.30, 0.20, 0.70, 1.20, 1.70, 0.20, 0.20, 0.20, 0.20,
+                         -0.0083700, 0.0048500, 0.0006100, 0.0007300]
+    if fileName == "Coma berenices":
+        initial_guess = [85.19, 3.42, 5.50, 2.30, 2.55, 0.10, 0.60, 1.10, 1.60, 2.10, 0.20, 0.20, 0.20, 0.20,
+                         -0.0120600, -0.0090800, 0.0013700, 0.0011600, ]
+    if fileName == "IC2391":
+        initial_guess = [145.35, 3.42, 5.50, 2.30, 2.55, -0.20, 0.10, 0.40, 0.70, 1.00, 0.20, 0.20, 0.20, 0.20,
+                         -0.0241600, 0.0233054, 0.0027600, 0.0027290]
+    if fileName == "IC2602":
+        initial_guess = [149.46, 3.42, 5.50, 2.30, 2.55, -0.30, 0.30, 0.90, 1.50, 2.10, 0.20, 0.20, 0.20, 0.20,
+                         -0.0174800, 0.0109300, 0.0022600, 0.0030900]
+    if fileName == "IC4665":
+        initial_guess = [358.84, 3.42, 5.50, 2.30, 2.55, 0.10, 0.30, 0.70, 1.10, 1.50, 0.20, 0.20, 0.20, 0.20,
+                         -0.0007800, -0.0082200, 0.0003200, 0.0002900]
+    if fileName == "NGC2232":
+        initial_guess = [329.85, 3.42, 5.50, 2.30, 2.55, -0.20, 0.10, 0.40, 0.70, 1.00, 0.20, 0.20, 0.20, 0.20,
+                         -0.0044600, -0.0016900, 0.0004400, 0.0005700]
+    if fileName == "NGC2422":
+        initial_guess = [456.93, 3.42, 5.50, 2.30, 2.55, -0.20, 0.10, 0.40, 0.70, 1.00, 0.20, 0.20, 0.20, 0.20,
+                         -0.0066800, 0.0009100, 0.0004700, 0.0003200]
+    if fileName == "NGC2451":
+        initial_guess = [184.65, 3.42, 5.50, 2.30, 2.55, -0.15, 0.26, 0.67, 1.08, 1.49, 0.20, 0.20, 0.20, 0.20,
+                         -0.0213200, 0.0156500, 0.0012100, 0.0011100]
+    if fileName == "NGC2516":
+        initial_guess = [355.68, 3.42, 5.50, 2.30, 2.55, -0.10, 0.15, 0.40, 0.65, 0.90, 0.20, 0.20, 0.20, 0.20,
+                         -0.0038600, 0.0108000, 0.0005500, 0.0004900]
+    if fileName == "NGC2547":
+        initial_guess = [364.66, 3.42, 5.50, 2.30, 2.55, -0.02, 0.11, 0.24, 0.37, 0.50, 0.20, 0.20, 0.20, 0.20,
+                         -0.0088700, 0.0041500, 0.0003900, 0.0002700]
+    if fileName == "NGC3532":
+        initial_guess = [450.06, 3.42, 5.50, 2.30, 2.55, -0.50, -0.05, 0.40, 0.85, 1.30, 0.20, 0.20, 0.20, 0.20,
+                         -0.0103900, 0.0052500, 0.0004100, 0.0003700]
+    if fileName == "NGC6475":
+        initial_guess = [280.22, 3.42, 5.50, 2.30, 2.55, -0.10, 0.20, 0.50, 0.80, 1.10, 0.20, 0.20, 0.20, 0.20,
+                         0.0030600, -0.0053500, 0.0005900, 0.0005500]
+    if fileName == "NGC6633":
+        initial_guess = [410.52, 3.42, 5.50, 2.30, 2.55, -0.01, 0.42, 0.85, 1.28, 1.71, 0.20, 0.20, 0.20, 0.20,
+                         0.0015100, -0.0017600, 0.0005130, 0.0002500]
+    if fileName == "NGC7092":
+        initial_guess = [309.32, 3.42, 5.50, 2.30, 2.55, -0.04, 0.31, 0.66, 1.01, 1.63, 0.20, 0.20, 0.20, 0.20,
+                         -0.0070900, -0.0199100, 0.0005800, 0.0004800]
+    if fileName == "Praesepe":
+        print("nothing")
 
-    print "Number of stars in cluster",len(starlist)
-    c={'N':len(starlist),'Q':500,'mlim':20.0,'lmean':calculateMeanL(starlist, len(starlist)),'bmean':calculateMeanB(starlist, len(starlist)),"w":w}
+    bins = calculate_bins(bp_rp_list, 4)
+
+    # Find number of stars in every bin (color bin)
+    w = findWeightings(starlist, bins)
+
+    print "Number of stars in cluster", len(starlist)
+
+    # MLE constants
+    # N: number of stars
+    # mLim: magnitud limit of the mission
+    # lmean: mean l
+    # bmean: mean b
+    constants_mle = {'N': len(starlist), 'mlim': 20.0, 'lmean': calculateMeanL(starlist, len(starlist)),
+                     'bmean': calculateMeanB(starlist, len(starlist)), "w": w}
 
     # Calculates ML and errors
-    results = MLE(starlist, c, initial_guess)
-    calculateErrors(starlist, c, results)
+    results = MLE(starlist, constants_mle, initial_guess, bins)
+    calculateErrors(starlist, constants_mle, results, bins)
