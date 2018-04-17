@@ -5,103 +5,24 @@ Module that contains the transformations needed to determine MLE (please refer t
 Un Nuevo metodo de maxima verosimilitud para la determinacion de magnitudes absolutas
 """
 import sys
-import time
-import csv
-import random
-import copy
-import scipy
-import pandas as pd
-import numpy as np
-#import matplotlib.pyplot as plt
-#import matplotlib.mlab as mlab
-import numdifftools as nd
+from math import pow, pi, sqrt, log, log10, exp, sin, cos, atan2, asin
+from multiprocessing import Process
 
-from numpy import matrix
 from scipy import interpolate
-from math import pow, pi, sqrt, log, log10, exp, sin, cos, atan2, asin, radians, degrees
-from scipy.integrate import quad,dblquad,romberg
-from scipy.special import erfc
-from multiprocessing import Process, Queue
-from scipy.optimize import minimize
-
 
 # Options: Cluster, kinematics, catalogue
 # TODO: This needs some refactoring
-cluster="Hyades" # cluster name
+cluster="Pleiades" # Pleiades or Hyades
 kinimatics=False   # True or False
 cat="New"          # New or Old
 
-
 # If cluster is Pleiades or Hyades (age)
 if cluster=="Pleiades": AgCluster = 0.0975
-else:  AgCluster =0.0
+else: AgCluster =0.0
 print "Cluster Extinction is", AgCluster
-k=4.74            
+k=4.74
 Dg=0.4782
 Ag=4.9291
-
-##BINS (hardcoded)
-# Color bins for the Pleiades cluster (original bins using bp-rp)
-#if cluster=="Pleiades": bins = [[-0.1, 0.0], [0.0, 0.4], [0.4, 0.6], [0.6, 0.8]]
-# Color bins using bt-vt
-if cluster=="Pleiades": bins = [[-0.1, 0.5], [0.5, 1.5], [1.5, 2.5], [2.5, 3.6]]
-if cluster=="PleiadesGeneva": bins = [[-1, -0.8], [-0.8, -0.75], [-0.75, -0.5], [-0.5, -0.1]]
-
-# Color bins for the Hyades cluster, bp-rp and bt-vt range is almost identical
-elif cluster=="Hyades": bins = [[0.3,0.7],[0.7,1.1],[1.1,1.5],[1.5,1.9]]
-
-#color bins for Alpha Persei (bt-vt)
-elif cluster=="Alpha_persei_1": bins=[[-0.1,0.2],[0.2,0.5],[0.5,0.8],[0.8,1.1]]
-
-#color bins for Blanco 1 (bt-vt)
-elif cluster=="Blanco1": bins=[[-0.1,0.2],[0.2,0.5],[0.5,0.8],[0.8,1.1]]
-
-#color bins for coll140 (bt-vt)
-elif cluster=="Col140_1": bins=[[-0.25,0],[0,0.2],[0.2,0.4],[0.4,0.7]]
-
-#color bins for Coma berenices (bt-vt)
-elif cluster=="Coma_berenices_1": bins=[[0.1,0.45],[0.45,0.8],[0.8,1.15],[1.15,1.5]]
-
-#color bins for IC2391 (bt-vt)
-elif cluster=="IC2391": bins=[[-0.2,0.1],[0.1,0.4],[0.4,0.7],[0.7,1.0]]
-
-#color bins for IC2602 (bt-vt)
-elif cluster=="IC2602_1": bins=[[-0.2,0.375],[0.375,0.95],[0.95,1.525],[1.525,2.1]]
-
-#color bins for IC4665 (bt-vt)
-elif cluster=="IC4665_1": bins=[[-0.1,0.1],[0.1,0.3],[0.3,0.5],[0.5,0.7]]
-
-#color bins for NGC2232 (bt-vt)
-elif cluster=="NGC2232": bins=[[-0.2,0.0],[0.0,0.2],[0.2,0.5],[0.5,0.9]]
-
-#color bins for NGC2422 (bt-vt)
-elif cluster=="NGC2422_1": bins=[[-0.1,0.0],[0.0,0.2],[0.2,0.4],[0.4,0.6]]
-
-#color bins for NGC2451(bt-vt)
-elif cluster=="NGC2451_1": bins=[[-0.2,0.1],[0.1,0.4],[0.4,0.7],[0.7,1]]
-
-#color bins for NGC2516 (bt-vt)
-elif cluster=="NGC2516_1": bins=[[-0.1,0.0],[0.0,0.2],[0.2,0.4],[0.4,0.7]]
-
-#color bins for NGC2547 (bt-vt)
-elif cluster=="NGC2547": bins=[[-0.15,0.0],[0.0,0.15],[0.15,0.3],[0.3,0.5]]
-
-#color bins for NGC3532 (bt-vt)
-elif cluster=="NGC3532_1": bins=[[-0.2,0],[0,0.2],[0.2,0.4],[0.4,0.8]]
-
-#color bins for NGC6475 (bt-vt)
-elif cluster=="NGC6475": bins=[[-0.05,0.1],[0.1,0.2],[0.2,0.4],[0.4,1.1]]
-
-#color bins for NGC6633 (bt-vt)
-elif cluster=="NGC6633_1": bins=[[-0.01,0.2],[0.2,0.3],[0.3,0.6],[0.6,0.8]]
-    #bins=[[-0.01,0.4],[0.4,0.8]]
-
-#color bins for NGC7092 (bt-vt)
-elif cluster=="NGC7092_1": bins=[[-0.04,0.05],[0.05,0.15],[0.15,0.25],[0.25,0.5]]
-
-#color bins for Praesepe (bt-vt)
-elif cluster=="Praesepe_1": bins=[[0,0.25],[0.25,0.5],[0.5,0.75],[0.75,1.0]]
-
 
 
 # Transformations (refer to Xavi's PhD thesis)
@@ -119,15 +40,15 @@ def E1(p,s,r0): return ( pow(B2(p,s,r0),2)/(4*J2(p,s,r0)))-H2(p,s,r0)
 def F1(p,s,r0): return ( pow(C2(p,s,r0),2)/(4*J2(p,s,r0)))-I2(p,s,r0)
 
 def A2(p,s,r0): return -(s['muAlpha']/ pow(s['epsMuAlpha'],2)) - ((  ((a1(s)*p['U'])/ pow(p['sigmaU'],2)) + ((a2(s)*p['V'])/ pow(p['sigmaV'],2)) + ((a3(s)*p['W'])/ pow(p['sigmaW'],2))  ) *r0)
-def B2(p,s,r0): return (  ((a1(s)*b1(s))/ pow(p['sigmaU'],2)) + ((a2(s)*b2(s))/ pow(p['sigmaV'],2)) + ((a3(s)*b3(s))/ pow(p['sigmaW'],2))  ) *  pow(r0,2) 
+def B2(p,s,r0): return (  ((a1(s)*b1(s))/ pow(p['sigmaU'],2)) + ((a2(s)*b2(s))/ pow(p['sigmaV'],2)) + ((a3(s)*b3(s))/ pow(p['sigmaW'],2))  ) *  pow(r0,2)
 def C2(p,s,r0): return (  ((a1(s)*c1(s))/ pow(p['sigmaU'],2)) + ((a2(s)*c2(s))/ pow(p['sigmaV'],2)) + ((a3(s)*c3(s))/ pow(p['sigmaW'],2))  ) *r0
-def D2(p,s,r0): return 0.5 * ((pow(s['muAlpha'],2)/pow(s['epsMuAlpha'],2)) + (pow(s['muDelta'],2)/pow(s['epsMuDelta'],2)) + (pow(s['vr'],2)/pow(s['epsVr'],2)) + (pow(p['U'],2)/pow(p['sigmaU'],2)) + (pow(p['V'],2)/pow(p['sigmaV'],2)) + (pow(p['W'],2)/pow(p['sigmaW'],2))) 
+def D2(p,s,r0): return 0.5 * ((pow(s['muAlpha'],2)/pow(s['epsMuAlpha'],2)) + (pow(s['muDelta'],2)/pow(s['epsMuDelta'],2)) + (pow(s['vr'],2)/pow(s['epsVr'],2)) + (pow(p['U'],2)/pow(p['sigmaU'],2)) + (pow(p['V'],2)/pow(p['sigmaV'],2)) + (pow(p['W'],2)/pow(p['sigmaW'],2)))
 def E2(p,s,r0): return -(s['muDelta']/ pow(s['epsMuDelta'],2)) - (( ((b1(s)*p['U'])/pow(p['sigmaU'],2)) + ((b2(s)*p['V'])/pow(p['sigmaV'],2)) + ((b3(s)*p['W'])/pow(p['sigmaW'],2))) *r0)
 def F2(p,s,r0): return -(s['vr']/ pow(s['epsVr'],2)) - ( ((c1(s)*p['U'])/pow(p['sigmaU'],2)) + ((c2(s)*p['V'])/pow(p['sigmaV'],2)) + ((c3(s)*p['W'])/pow(p['sigmaW'],2))  )
 def G2(p,s,r0): return (  ((b1(s)*c1(s))/pow(p['sigmaU'],2)) + ((b2(s)*c2(s))/pow(p['sigmaV'],2)) + ((b3(s)*c3(s))/pow(p['sigmaW'],2)) ) *r0
-def H2(p,s,r0): return (1.0/(2*pow(s['epsMuDelta'],2))) + 0.5*(  (( pow(b1(s),2))/( pow(p['sigmaU'],2)))+(( pow(b2(s),2))/( pow(p['sigmaV'],2)))+(( pow(b3(s),2))/( pow(p['sigmaW'],2))))* pow(r0,2)    
+def H2(p,s,r0): return (1.0/(2*pow(s['epsMuDelta'],2))) + 0.5*(  (( pow(b1(s),2))/( pow(p['sigmaU'],2)))+(( pow(b2(s),2))/( pow(p['sigmaV'],2)))+(( pow(b3(s),2))/( pow(p['sigmaW'],2))))* pow(r0,2)
 def I2(p,s,r0): return (1.0/(2*pow(s['epsVr'],2)))  + 0.5*(  (( pow(c1(s),2))/( pow(p['sigmaU'],2)))+(( pow(c2(s),2))/( pow(p['sigmaV'],2)))+(( pow(c3(s),2))/( pow(p['sigmaW'],2))))
-def J2(p,s,r0): return (1.0/(2*pow(s['epsMuAlpha'],2))) + 0.5*(  (( pow(a1(s),2))/( pow(p['sigmaU'],2)))+(( pow(a2(s),2))/( pow(p['sigmaV'],2)))+(( pow(a3(s),2))/( pow(p['sigmaW'],2))))* pow(r0,2)    
+def J2(p,s,r0): return (1.0/(2*pow(s['epsMuAlpha'],2))) + 0.5*(  (( pow(a1(s),2))/( pow(p['sigmaU'],2)))+(( pow(a2(s),2))/( pow(p['sigmaV'],2)))+(( pow(a3(s),2))/( pow(p['sigmaW'],2))))* pow(r0,2)
 
 def a1(s): return k*(s['sfi']*s['cl']*s['sb']-s['cfi']*s['sl'])
 def a2(s): return k*(s['sfi']*s['sl']*s['sb']+s['cfi']*s['cl'])
@@ -143,8 +64,25 @@ def getU(a,s): return a1(a)*s['muAlpha']/s['pi']  +  b1(a)*s['muDelta']/s['pi'] 
 def getV(a,s): return a2(a)*s['muAlpha']/s['pi']  +  b2(a)*s['muDelta']/s['pi']  +  c2(a)*s['vr']
 def getW(a,s): return a3(a)*s['muAlpha']/s['pi']  +  b3(a)*s['muDelta']/s['pi']  +  c3(a)*s['vr']
 
-def calculateMeanL(slist, N): return  atan2(sum([item['sinl'] for item in slist]) / N, sum([item['cosl'] for item in slist]) / N)
-def calculateMeanB(slist, N): return  atan2(sum([item['sinb'] for item in slist]) / N, sum([item['cosb'] for item in slist]) / N)
+def calculateMeanL(slist, N):
+    """
+    Calculates the mean l coordinate
+    :param slist: star list
+    :param N: number of stars in the cluster
+    :return: mean l coordinate
+    """
+    return atan2(sum([item['sinl'] for item in slist]) / N, sum([item['cosl'] for item in slist]) / N)
+
+def calculateMeanB(slist, N):
+    """
+    Calculates the mean b coordinate
+
+    :param slist: star list
+    :param N: number of stars in the cluster
+    :return: mean b coordinate
+    """
+
+    return atan2(sum([item['sinb'] for item in slist]) / N, sum([item['cosb'] for item in slist]) / N)
 
 
 def calculateMeanR(slist, N):
@@ -201,8 +139,11 @@ def getVr(a,U,V,W): return (W- U*a3(a)/a1(a) - (V-U*a2(a)/a1(a)) * (b3(a)-b1(a)*
 def getMuDelta(a,V,U,vr,r): return ((V-U*a2(a)/a1(a) ) - (( c2(a)-c1(a)*a2(a)/a1(a) ) * vr)) / r / ( b2(a)-b1(a)*a2(a)/a1(a) )
 def getMuAlpha(a,U,vr,r,muDelta): return  (U-r*b1(a)*muDelta-c1(a)*vr)/r/a1(a)
 
-def logD(D,star):
+def logD(D):
     '''
+    Safest way of calculating the log (if the probability from ML is zero is not possible to calculate the log, although
+    if the probability is zero it makes mathematical sense)
+    If the probability is zero (e.g. due to rounding), it assigns a very large negative number
 
     :param D:
     :param star:
@@ -210,10 +151,10 @@ def logD(D,star):
     '''
     if D > 0:     D =  log(D)
     elif D == 0:  D = -10000
-    elif D < 0: 
+    elif D < 0:
         print "Error: negative D"
         sys.exit()
-    return D    
+    return D
 
 def transformCoordinates(s,c):
     '''
@@ -228,25 +169,26 @@ def transformCoordinates(s,c):
     s['bprime'] = s['b'] - c['bmean']
     s.update({'sb':sin(s['b']),'cb':cos(s['b']),'sl':sin(s['l']),'cl':cos(s['l']),'sbprime':sin(s['bprime']),'cbprime':cos(s['bprime']),'slprime':sin(s['lprime']),'clprime':cos(s['lprime'])})
     a=getA(s['l'],s['b'])
-    s.update({'cfi':cos(Fi(a,s['l'],s['b'])),'sfi':sin(Fi(a,s['l'],s['b']))})  
+    s.update({'cfi':cos(Fi(a,s['l'],s['b'])),'sfi':sin(Fi(a,s['l'],s['b']))})
     return s
 
 
-def getP(x):
+def getParameters(x):
     '''
+    Returns a dictionary for the parameters with their labels, it also computes R^2 (the distance to the cluster)
 
     :param x:
     :return:
     '''
     if kinimatics==True:
-        labels =  ['R','sS1','sS2','sS3','sS4','x1','x2','x3','x4','x5','sM1','sM2','sM3','sM4','U','V','W','sigmaUVW'] 
+        labels =  ['R','sS1','sS2','sS3','sS4','x1','x2','x3','x4','x5','sM1','sM2','sM3','sM4','U','V','W','sigmaUVW']
         p=dict(zip(labels, x))
         p.update({'R^2':p['R']**2,"sigmaU":p['sigmaUVW'],"sigmaV":p['sigmaUVW'],"sigmaW":p['sigmaUVW'] })
-    elif kinimatics==False: 
-        labels =  ['R','sS1','sS2','sS3','sS4','x1','x2','x3','x4','x5','sM1','sM2','sM3','sM4','muAlphaMean','muDeltaMean','sigmaMuAlpha','sigmaMuDelta'] 
+    elif kinimatics==False:
+        labels =  ['R','sS1','sS2','sS3','sS4','x1','x2','x3','x4','x5','sM1','sM2','sM3','sM4','muAlphaMean','muDeltaMean','sigmaMuAlpha','sigmaMuDelta']
         p=dict(zip(labels, x))
-        p.update({'R^2':p['R']**2})           
-    return p   
+        p.update({'R^2':p['R']**2})
+    return p
 
 def checkParamsAreValid(p):
     '''
@@ -262,8 +204,8 @@ def checkParamsAreValid(p):
         if min(p['sS1'],p['sS2'],p['sS3'],p['sS4'],p['sM1'],p['sM2'],p['sM3'],p['sM4'],p['R'],p['sigmaMuAlpha'],p['sigmaMuDelta'])<=0:
             return False
         else: return True
-        
-        
+
+
 def startProcess(procs, target, args):
     '''
 
@@ -277,7 +219,7 @@ def startProcess(procs, target, args):
     thisProcess.start()
     return procs
 
-def getSigmaSSigmaMforC(p,minColour,maxColour):
+def getSigmaSSigmaMforC(p, minColour, maxColour, bins):
     '''
 
     :param p:
@@ -289,9 +231,9 @@ def getSigmaSSigmaMforC(p,minColour,maxColour):
         if minColour == bins[i][0] and maxColour == bins[i][1]:
             sigmaS = p['sS%s' % str(i+1)]
             sigmaM = p['sM%s' % str(i+1)]
-    return sigmaS, sigmaM 
+    return sigmaS, sigmaM
 
-def getSigmaSSigmaMforD(p,star):
+def getSigmaSSigmaMforD(p, star, bins):
     '''
 
     :param p:
@@ -303,19 +245,19 @@ def getSigmaSSigmaMforD(p,star):
         if star['bp-rp'] >= bins[i][0] and star['bp-rp'] < bins[i][1]:
             sigmaS = p['sS%s' % str(i+1)]
             sigmaM = p['sM%s' % str(i+1)]
-    return sigmaS, sigmaM 
+    return sigmaS, sigmaM
 
-def getCminCmaxforD(star):
+def getCminCmaxforD(star, bins):
     '''
 
     :param star:
     :return:
     '''
     for thisBin in bins:
-        if star['bp-rp'] >= thisBin[0] and star['bp-rp'] < thisBin[1]: 
-            return thisBin[0],thisBin[1] 
+        if star['bp-rp'] >= thisBin[0] and star['bp-rp'] < thisBin[1]:
+            return thisBin[0],thisBin[1]
 
-def getCminCmaxforC(minColour,maxColour):
+def getCminCmaxforC(minColour, maxColour, bins):
     '''
 
     :param minColour:
@@ -323,10 +265,10 @@ def getCminCmaxforC(minColour,maxColour):
     :return:
     '''
     for thisBin in bins:
-        if minColour == thisBin[0] and maxColour == thisBin[1]: 
-            return thisBin[0],thisBin[1] 
+        if minColour == thisBin[0] and maxColour == thisBin[1]:
+            return thisBin[0],thisBin[1]
 
-def getWeight(c,minColour,maxColour):
+def getWeight(c,minColour,maxColour, bins):
     '''
 
     :param c:
@@ -337,19 +279,19 @@ def getWeight(c,minColour,maxColour):
     for i in xrange(0,len(bins),1):
         if minColour == bins[i][0] and maxColour == bins[i][1]:
             w=c['w']
-            return w[i]       
+            return w[i]
 
 # Distributions for magnitud, space, velocity, dispersion in distance and proper motions
 def Fmag(star,r0,spline,sigmaM): return exp(-0.5 *  pow((star['mg'] - (5*log10(r0)) + 5 - AgCluster - (interpolate.splev(star['bp-rp'],spline))) / sigmaM, 2))
 def Fspace(star,r0,p,sigmaS): return exp (-0.5 * (p['R^2'] + pow(r0,2) - (2 * r0 * p['R'] *  star['cbprime'] * star['clprime'])) / (sigmaS**2) )
-#def Fvel(star,muAlpha0,muDelta0,p): return exp (-0.5 *  pow((muAlpha0 - p['muAlphaMean']) / p['sigmaMuAlpha'], 2)) * exp (-0.5 *  pow((muDelta0 - p['muDeltaMean']) / p['sigmaMuDelta'], 2)) 
-def Fvel(star,muAlpha0,muDelta0,p): return exp (-0.5 *  pow((muAlpha0 - p['muAlphaMean']) / p['sigmaMuAlpha'], 2)) * exp (-0.5 *  pow((muDelta0 - p['muDeltaMean']) / p['sigmaMuDelta'], 2)) 
+#def Fvel(star,muAlpha0,muDelta0,p): return exp (-0.5 *  pow((muAlpha0 - p['muAlphaMean']) / p['sigmaMuAlpha'], 2)) * exp (-0.5 *  pow((muDelta0 - p['muDeltaMean']) / p['sigmaMuDelta'], 2))
+def Fvel(muAlpha0,muDelta0,p_mualpha, p_sigma_mualpha, p_mudelta, p_sigma_mudelta): return exp (-0.5 *  pow((muAlpha0 - p_mualpha) / p_sigma_mualpha, 2)) * exp (-0.5 *  pow((muDelta0 - p_mudelta) / p_sigma_mudelta, 2))
 
 
-def jacobian(star,r0): return pow(r0,2)* star['cbprime'] 
+def jacobian(star,r0): return pow(r0,2)* star['cbprime']
 def epsPi(star,r0): return exp (-0.5 *  pow((star['pi'] - (1.0 / r0)) / star['epsPi'], 2))
-def epsMuAlpha(star,muAlpha0): return exp (-0.5 *  pow((star['muAlpha'] -  muAlpha0) / star['epsMuAlpha'], 2)) 
-def epsMuDelta(star,muDelta0): return exp (-0.5 *  pow((star['muDelta'] -  muDelta0) / star['epsMuDelta'], 2)) 
+def epsMuAlpha(star,muAlpha0): return exp (-0.5 *  pow((star['muAlpha'] -  muAlpha0) / star['epsMuAlpha'], 2))
+def epsMuDelta(star,muDelta0): return exp (-0.5 *  pow((star['muDelta'] -  muDelta0) / star['epsMuDelta'], 2))
 
 
 def getSpline(bins,p):
@@ -368,9 +310,10 @@ def getSpline(bins,p):
     return interpolate.splrep(x,y)
 
 
-def findW(starlist):
+def findWeightings(starlist, bins):
     '''
-    Number of stars inside color bins
+    Find the relative weightings to be applied to each bin,
+    computed from number of stars inside each color bin divided by the total number of stars
     :param starlist:
     :return:
     '''
