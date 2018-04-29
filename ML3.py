@@ -18,6 +18,7 @@ color             = bp-rp (mag) (bt-vt can be used)
 
 Output:
 Parameters, distance, position, speed, size isochrone, with their errors
+labels =  ['R','sS1','sS2','sS3','sS4','x1','x2','x3','x4','x5','sM1','sM2','sM3','sM4','muAlphaMean','muDeltaMean','sigmaMuAlpha','sigmaMuDelta']
 
 """
 
@@ -262,7 +263,7 @@ Main program to calculate ML. Catalogue should be located inside the same direct
 if __name__ == '__main__':
 
     # Reads a csv file containing the parameters
-    fileName = 'Pleiades'
+    fileName = 'Pleyades'
     starlist = pd.read_csv(fileName, names=['mg', 'l', 'b', 'pi', 'epsPi',
                                             'muAlpha', 'epsMuAlpha', 'muDelta',
                                             'epsMuDelta', 'bp-rp']).T.to_dict().values()
@@ -282,7 +283,8 @@ if __name__ == '__main__':
     #    starlist[i].pop('vr', None)
     #    starlist[i].pop('epsVr-V', None)
 
-    distlist, maxlist, minlist, llist, blist, xlist, ylist, zlist, bp_rp_list = [], [], [], [], [], [], [], [], []
+    distlist, maxlist, minlist, llist, blist, xlist, ylist, \
+    zlist, bp_rp_list, mualpha_list, mudelta_list = [], [], [], [], [], [], [], [], [], [], []
 
     # Creates list of values for each parameter
     for star in starlist:
@@ -296,6 +298,8 @@ if __name__ == '__main__':
             ylist.append(star['y'])
             zlist.append(star['z'])
         bp_rp_list.append(star['bp-rp'])
+        mualpha_list.append(star['muAlpha'])
+        mudelta_list.append(star['muDelta'])
 
     # x, y and z means
     meanx = np.mean(xlist)
@@ -303,64 +307,73 @@ if __name__ == '__main__':
     meanz = np.mean(zlist)
     print "mean cluster coordinates for original catalogue:", meanx, meany, meanz
 
+    # Dynamic initial guesses
+    # Distance
+    r_i = np.mean(distlist)
+    # Mualpha and mudelta
+    mualpha_m_i = np.mean(mualpha_list)
+    mudelta_m_i = np.mean(mudelta_list)
+
     if fileName == 'Hyades':
         # Initial Guess for Hyades
-        initial_guess = [46.35158593, 3.41991717, 5.50180935, 2.29546342, 2.54500714, 0.76959647, 3.98301261,
-                         5.24713807, 7.05108992, 9.25966225, 0.39008765, 0.32244944, 0.63084539, 0.34296494, 0, 0, 10,
+        initial_guess = [r_i, 3.41991717, 5.50180935, 2.29546342, 2.54500714, 0.76959647, 3.98301261,
+                         5.24713807, 7.05108992, 9.25966225, 0.39008765, 0.32244944, 0.63084539, 0.34296494,
+                         mualpha_m_i, mudelta_m_i, 10,
                          10]
     if fileName == 'Pleiades':
         # Initial Guess for Pleiades
-        initial_guess = [1.25252094e+02, 3.35150575e+00, 4.86142031e+00, 1.03207132e+01, 1.31350468e+01,
+        initial_guess = [r_i, 3.35150575e+00, 4.86142031e+00, 1.03207132e+01, 1.31350468e+01,
                          -2.39384409e+00, 1.96855446e-01, 3.04079043e+00, 4.22140557e+00, 5.37379397e+00,
-                         1.55576559e+00, 4.49615136e-01, 2.19895913e-01, 1.67554634e-01, 0, 0, 0.1, 0.1]
+                         1.55576559e+00, 4.49615136e-01, 2.19895913e-01, 1.67554634e-01, mualpha_m_i, mudelta_m_i, 0.1,
+                         0.1]
     if fileName == "Alpha persei":
-        initial_guess = [173.57, 3.42, 5.50, 2.30, 2.55, -0.10, 0.30, 0.70, 1.10, 1.50, 0.20, 0.20, 0.20, 0.20,
-                         0.0227700, -0.0254000, 0.0018400, 0.0015100]
+        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.10, 0.30, 0.70, 1.10, 1.50, 0.20, 0.20, 0.20, 0.20,
+                         mualpha_m_i, mudelta_m_i, 0.0018400, 0.0015100]
     if fileName == "Blanco1":
-        initial_guess = [231.14, 3.42, 5.50, 2.30, 2.55, -0.10, 0.20, 0.50, 0.80, 1.10, 0.20, 0.20, 0.20, 0.20,
-                         0.0185130, 0.0025400, 0.0008200, 0.0008200]
+        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.10, 0.20, 0.50, 0.80, 1.10, 0.20, 0.20, 0.20, 0.20,
+                         mualpha_m_i, mudelta_m_i, 0.0008200, 0.0008200]
     if fileName == "Col140":
-        initial_guess = [351.30, 3.42, 5.50, 2.30, 2.55, -0.30, 0.20, 0.70, 1.20, 1.70, 0.20, 0.20, 0.20, 0.20,
-                         -0.0083700, 0.0048500, 0.0006100, 0.0007300]
+        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.30, 0.20, 0.70, 1.20, 1.70, 0.20, 0.20, 0.20, 0.20,
+                         mualpha_m_i, mudelta_m_i, 0.0006100, 0.0007300]
     if fileName == "Coma berenices":
-        initial_guess = [85.19, 3.42, 5.50, 2.30, 2.55, 0.10, 0.60, 1.10, 1.60, 2.10, 0.20, 0.20, 0.20, 0.20,
-                         -0.0120600, -0.0090800, 0.0013700, 0.0011600, ]
+        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, 0.10, 0.60, 1.10, 1.60, 2.10, 0.20, 0.20, 0.20, 0.20,
+                         mualpha_m_i, mudelta_m_i, 0.0013700, 0.0011600, ]
     if fileName == "IC2391":
-        initial_guess = [145.35, 3.42, 5.50, 2.30, 2.55, -0.20, 0.10, 0.40, 0.70, 1.00, 0.20, 0.20, 0.20, 0.20,
-                         -0.0241600, 0.0233054, 0.0027600, 0.0027290]
+        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.20, 0.10, 0.40, 0.70, 1.00, 0.20, 0.20, 0.20, 0.20,
+                         mualpha_m_i, mudelta_m_i, 0.0027600, 0.0027290]
     if fileName == "IC2602":
-        initial_guess = [149.46, 3.42, 5.50, 2.30, 2.55, -0.30, 0.30, 0.90, 1.50, 2.10, 0.20, 0.20, 0.20, 0.20,
-                         -0.0174800, 0.0109300, 0.0022600, 0.0030900]
+        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.30, 0.30, 0.90, 1.50, 2.10, 0.20, 0.20, 0.20, 0.20,
+                         mualpha_m_i, mudelta_m_i, 0.0022600, 0.0030900]
     if fileName == "IC4665":
-        initial_guess = [358.84, 3.42, 5.50, 2.30, 2.55, 0.10, 0.30, 0.70, 1.10, 1.50, 0.20, 0.20, 0.20, 0.20,
-                         -0.0007800, -0.0082200, 0.0003200, 0.0002900]
+        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, 0.10, 0.30, 0.70, 1.10, 1.50, 0.20, 0.20, 0.20, 0.20,
+                         mualpha_m_i, mudelta_m_i, 0.0003200, 0.0002900]
     if fileName == "NGC2232":
-        initial_guess = [329.85, 3.42, 5.50, 2.30, 2.55, -0.20, 0.10, 0.40, 0.70, 1.00, 0.20, 0.20, 0.20, 0.20,
-                         -0.0044600, -0.0016900, 0.0004400, 0.0005700]
+        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.20, 0.10, 0.40, 0.70, 1.00, 0.20, 0.20, 0.20, 0.20,
+                         mualpha_m_i, mudelta_m_i, 0.0004400, 0.0005700]
     if fileName == "NGC2422":
-        initial_guess = [456.93, 3.42, 5.50, 2.30, 2.55, -0.20, 0.10, 0.40, 0.70, 1.00, 0.20, 0.20, 0.20, 0.20,
-                         -0.0066800, 0.0009100, 0.0004700, 0.0003200]
+        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.20, 0.10, 0.40, 0.70, 1.00, 0.20, 0.20, 0.20, 0.20,
+                         mualpha_m_i, mudelta_m_i, 0.0004700, 0.0003200]
     if fileName == "NGC2451":
-        initial_guess = [184.65, 3.42, 5.50, 2.30, 2.55, -0.15, 0.26, 0.67, 1.08, 1.49, 0.20, 0.20, 0.20, 0.20,
-                         -0.0213200, 0.0156500, 0.0012100, 0.0011100]
+        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.15, 0.26, 0.67, 1.08, 1.49, 0.20, 0.20, 0.20, 0.20,
+                         mualpha_m_i, mudelta_m_i, 0.0012100, 0.0011100]
     if fileName == "NGC2516":
-        initial_guess = [355.68, 3.42, 5.50, 2.30, 2.55, -0.10, 0.15, 0.40, 0.65, 0.90, 0.20, 0.20, 0.20, 0.20,
-                         -0.0038600, 0.0108000, 0.0005500, 0.0004900]
+        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.10, 0.15, 0.40, 0.65, 0.90, 0.20, 0.20, 0.20, 0.20,
+                         mualpha_m_i, mudelta_m_i, 0.0005500, 0.0004900]
     if fileName == "NGC2547":
-        initial_guess = [364.66, 3.42, 5.50, 2.30, 2.55, -0.02, 0.11, 0.24, 0.37, 0.50, 0.20, 0.20, 0.20, 0.20,
-                         -0.0088700, 0.0041500, 0.0003900, 0.0002700]
+        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.02, 0.11, 0.24, 0.37, 0.50, 0.20, 0.20, 0.20, 0.20,
+                         mualpha_m_i, mudelta_m_i, 0.0003900, 0.0002700]
     if fileName == "NGC3532":
-        initial_guess = [450.06, 3.42, 5.50, 2.30, 2.55, -0.50, -0.05, 0.40, 0.85, 1.30, 0.20, 0.20, 0.20, 0.20,
-                         -0.0103900, 0.0052500, 0.0004100, 0.0003700]
+        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.50, -0.05, 0.40, 0.85, 1.30, 0.20, 0.20, 0.20, 0.20,
+                         mualpha_m_i, mudelta_m_i, 0.0004100, 0.0003700]
     if fileName == "NGC6475":
-        initial_guess = [280.22, 3.42, 5.50, 2.30, 2.55, -0.10, 0.20, 0.50, 0.80, 1.10, 0.20, 0.20, 0.20, 0.20,
-                         0.0030600, -0.0053500, 0.0005900, 0.0005500]
+        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.10, 0.20, 0.50, 0.80, 1.10, 0.20, 0.20, 0.20, 0.20,
+                         mualpha_m_i, mudelta_m_i, 0.0005900, 0.0005500]
     if fileName == "NGC6633":
-        initial_guess = [410.52, 3.42, 5.50, 2.30, 2.55, -0.01, 0.42, 0.85, 1.28, 1.71, 0.20, 0.20, 0.20, 0.20,
-                         0.0015100, -0.0017600, 0.0005130, 0.0002500]
+        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.01, 0.42, 0.85, 1.28, 1.71, 0.20, 0.20, 0.20, 0.20,
+                         mualpha_m_i, mudelta_m_i, 0.0005130, 0.0002500]
     if fileName == "NGC7092":
-        initial_guess = [309.32, 3.42, 5.50, 2.30, 2.55, -0.04, 0.31, 0.66, 1.01, 1.63, 0.20, 0.20, 0.20, 0.20,
-                         -0.0070900, -0.0199100, 0.0005800, 0.0004800]
+        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.04, 0.31, 0.66, 1.01, 1.63, 0.20, 0.20, 0.20, 0.20,
+                         mualpha_m_i, mudelta_m_i, 0.0005800, 0.0004800]
     if fileName == "Praesepe":
         print("nothing")
 
