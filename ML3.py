@@ -263,7 +263,7 @@ Main program to calculate ML. Catalogue should be located inside the same direct
 if __name__ == '__main__':
 
     # Reads a csv file containing the parameters
-    fileName = 'Pleyades'
+    fileName = 'Pleiades'
     starlist = pd.read_csv(fileName, names=['mg', 'l', 'b', 'pi', 'epsPi',
                                             'muAlpha', 'epsMuAlpha', 'muDelta',
                                             'epsMuDelta', 'bp-rp']).T.to_dict().values()
