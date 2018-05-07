@@ -254,16 +254,13 @@ def MLE(starlist, constants, guess, bins):
     print "NM: ", res.message, "\n", res.x, "\n", "Total time:", time.time() - t0
     return res.x
 
-
 """
-
 Main program to calculate ML. Catalogue should be located inside the same directory
-
 """
 if __name__ == '__main__':
 
     # Reads a csv file containing the parameters
-    fileName = 'Pleiades'
+    fileName = 'IC2391'
     starlist = pd.read_csv(fileName, names=['mg', 'l', 'b', 'pi', 'epsPi',
                                             'muAlpha', 'epsMuAlpha', 'muDelta',
                                             'epsMuDelta', 'bp-rp']).T.to_dict().values()
@@ -284,7 +281,7 @@ if __name__ == '__main__':
     #    starlist[i].pop('epsVr-V', None)
 
     distlist, maxlist, minlist, llist, blist, xlist, ylist, \
-    zlist, bp_rp_list, mualpha_list, mudelta_list = [], [], [], [], [], [], [], [], [], [], []
+    zlist, bp_rp_list, mualpha_list, mudelta_list,mlist = [], [], [], [], [], [], [], [], [], [], [], []
 
     # Creates list of values for each parameter
     for star in starlist:
@@ -297,6 +294,7 @@ if __name__ == '__main__':
             xlist.append(star['x'])
             ylist.append(star['y'])
             zlist.append(star['z'])
+            mlist.append(star['mg'])
         bp_rp_list.append(star['bp-rp'])
         mualpha_list.append(star['muAlpha'])
         mudelta_list.append(star['muDelta'])
@@ -313,70 +311,77 @@ if __name__ == '__main__':
     # Mualpha and mudelta
     mualpha_m_i = np.mean(mualpha_list)
     mudelta_m_i = np.mean(mudelta_list)
+    #variance of the proper motion distribution
+    sigmaMuAlphaMean=np.std(mualpha_list)
+    sigmaMuDeltaMean=np.std(mudelta_list)
+    #Absolute magnitude:
+    def absmag(m,d):
+        """Calculates the absolute magnitude"""
+        return m-5*log10(d)+5
+    
+    def varspatialdistrib(stars,bin_i,bin_j):
+        """
+        Calculates the variance of the spatial distribution:
+        takes all the stars near the bin boundary, computes the distance
+        and takes its variance
+        """
+        dist=[]
+        delta=0.2
+        for star in stars:
+            if star['bp-rp']+delta>bin_i and star['bp-rp']-delta<bin_i and star['pi']>0:
+                dist.append(1/star['pi'])
+        return np.std(dist)
+    
+    def interpol(stars,bin_i):
+        """
+        Calculates the isochrone interpolation points:
+        takes all the stars near the bin boundary, computes the abs mag
+        and takes its mean
+        """
+        interpolation=[]
+        delta=0.2
+        for star in stars:
+            if star['bp-rp']+delta>bin_i and star['bp-rp']-delta<bin_i and star['pi']>0:
+                interpolation.append(absmag(star['mg'],1/star['pi']))
+        if bin_i==bins[0][0]:
+            return np.min(interpolation)
+        if bin_i==bins[3][1]:
+            return np.max(interpolation)
+        else:
+            return np.mean(interpolation)
+    
+    def absmagdispersion(stars,bin_i,bin_j):
+        """
+        Calculates the absolute magnitude dispersion for each bin
+        """
+        Mag=[]
+        for star in stars:
+            if star['bp-rp']>bin_i and star['bp-rp']<bin_j and star['pi']>0:
+               Mag.append(absmag(star['mg'],1/star['pi']))
+        return np.std(Mag)
 
-    if fileName == 'Hyades':
-        # Initial Guess for Hyades
-        initial_guess = [r_i, 3.41991717, 5.50180935, 2.29546342, 2.54500714, 0.76959647, 3.98301261,
-                         5.24713807, 7.05108992, 9.25966225, 0.39008765, 0.32244944, 0.63084539, 0.34296494,
-                         mualpha_m_i, mudelta_m_i, 10,
-                         10]
-    if fileName == 'Pleiades':
-        # Initial Guess for Pleiades
-        initial_guess = [r_i, 3.35150575e+00, 4.86142031e+00, 1.03207132e+01, 1.31350468e+01,
-                         -2.39384409e+00, 1.96855446e-01, 3.04079043e+00, 4.22140557e+00, 5.37379397e+00,
-                         1.55576559e+00, 4.49615136e-01, 2.19895913e-01, 1.67554634e-01, mualpha_m_i, mudelta_m_i, 0.1,
-                         0.1]
-    if fileName == "Alpha persei":
-        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.10, 0.30, 0.70, 1.10, 1.50, 0.20, 0.20, 0.20, 0.20,
-                         mualpha_m_i, mudelta_m_i, 0.0018400, 0.0015100]
-    if fileName == "Blanco1":
-        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.10, 0.20, 0.50, 0.80, 1.10, 0.20, 0.20, 0.20, 0.20,
-                         mualpha_m_i, mudelta_m_i, 0.0008200, 0.0008200]
-    if fileName == "Col140":
-        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.30, 0.20, 0.70, 1.20, 1.70, 0.20, 0.20, 0.20, 0.20,
-                         mualpha_m_i, mudelta_m_i, 0.0006100, 0.0007300]
-    if fileName == "Coma berenices":
-        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, 0.10, 0.60, 1.10, 1.60, 2.10, 0.20, 0.20, 0.20, 0.20,
-                         mualpha_m_i, mudelta_m_i, 0.0013700, 0.0011600, ]
-    if fileName == "IC2391":
-        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.20, 0.10, 0.40, 0.70, 1.00, 0.20, 0.20, 0.20, 0.20,
-                         mualpha_m_i, mudelta_m_i, 0.0027600, 0.0027290]
-    if fileName == "IC2602":
-        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.30, 0.30, 0.90, 1.50, 2.10, 0.20, 0.20, 0.20, 0.20,
-                         mualpha_m_i, mudelta_m_i, 0.0022600, 0.0030900]
-    if fileName == "IC4665":
-        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, 0.10, 0.30, 0.70, 1.10, 1.50, 0.20, 0.20, 0.20, 0.20,
-                         mualpha_m_i, mudelta_m_i, 0.0003200, 0.0002900]
-    if fileName == "NGC2232":
-        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.20, 0.10, 0.40, 0.70, 1.00, 0.20, 0.20, 0.20, 0.20,
-                         mualpha_m_i, mudelta_m_i, 0.0004400, 0.0005700]
-    if fileName == "NGC2422":
-        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.20, 0.10, 0.40, 0.70, 1.00, 0.20, 0.20, 0.20, 0.20,
-                         mualpha_m_i, mudelta_m_i, 0.0004700, 0.0003200]
-    if fileName == "NGC2451":
-        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.15, 0.26, 0.67, 1.08, 1.49, 0.20, 0.20, 0.20, 0.20,
-                         mualpha_m_i, mudelta_m_i, 0.0012100, 0.0011100]
-    if fileName == "NGC2516":
-        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.10, 0.15, 0.40, 0.65, 0.90, 0.20, 0.20, 0.20, 0.20,
-                         mualpha_m_i, mudelta_m_i, 0.0005500, 0.0004900]
-    if fileName == "NGC2547":
-        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.02, 0.11, 0.24, 0.37, 0.50, 0.20, 0.20, 0.20, 0.20,
-                         mualpha_m_i, mudelta_m_i, 0.0003900, 0.0002700]
-    if fileName == "NGC3532":
-        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.50, -0.05, 0.40, 0.85, 1.30, 0.20, 0.20, 0.20, 0.20,
-                         mualpha_m_i, mudelta_m_i, 0.0004100, 0.0003700]
-    if fileName == "NGC6475":
-        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.10, 0.20, 0.50, 0.80, 1.10, 0.20, 0.20, 0.20, 0.20,
-                         mualpha_m_i, mudelta_m_i, 0.0005900, 0.0005500]
-    if fileName == "NGC6633":
-        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.01, 0.42, 0.85, 1.28, 1.71, 0.20, 0.20, 0.20, 0.20,
-                         mualpha_m_i, mudelta_m_i, 0.0005130, 0.0002500]
-    if fileName == "NGC7092":
-        initial_guess = [r_i, 3.42, 5.50, 2.30, 2.55, -0.04, 0.31, 0.66, 1.01, 1.63, 0.20, 0.20, 0.20, 0.20,
-                         mualpha_m_i, mudelta_m_i, 0.0005800, 0.0004800]
-    if fileName == "Praesepe":
-        print("nothing")
 
+    #bins
+    bins = calculate_bins(bp_rp_list, 4)
+    print "Bins:",bins
+    
+    sS1=varspatialdistrib(starlist,bins[0][0],bins[0][1])
+    sS2=varspatialdistrib(starlist,bins[1][0],bins[1][1])
+    sS3=varspatialdistrib(starlist,bins[2][0],bins[2][1])
+    sS4=varspatialdistrib(starlist,bins[3][0],bins[3][1])
+    x1=interpol(starlist,bins[0][0])
+    x2=interpol(starlist,bins[1][0])
+    x3=interpol(starlist,bins[2][0])
+    x4=interpol(starlist,bins[3][0])
+    x5=interpol(starlist,bins[3][1])
+    sM1=absmagdispersion(starlist,bins[0][0],bins[0][1])
+    sM2=absmagdispersion(starlist,bins[1][0],bins[1][1])
+    sM3=absmagdispersion(starlist,bins[2][0],bins[2][1])
+    sM4=absmagdispersion(starlist,bins[3][0],bins[3][1])
+    
+    
+    initial_guess=[r_i,sS1,sS2,sS3,sS4,x1,x2,x3,x4,x5,sM1,sM2,sM3,sM4,mualpha_m_i,mudelta_m_i,sigmaMuAlphaMean,sigmaMuDeltaMean]
+    
     bins = calculate_bins(bp_rp_list, 4)
 
     # Find number of stars in every bin (color bin)
